@@ -4,28 +4,6 @@ import Testing
 
 @testable import ScreenToCodexCore
 
-final class TemporaryRoot {
-  let url: URL
-  init() throws {
-    url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-  }
-  deinit { try? FileManager.default.removeItem(at: url) }
-}
-
-@Test func splitJSONLinesAreReassembled() throws {
-  var framer = LineFramer(limit: 100)
-  #expect(try framer.append(Data("{\"id\":".utf8)) == [])
-  #expect(try framer.append(Data("1}\n{}\n".utf8)) == [Data("{\"id\":1}".utf8), Data("{}".utf8)])
-}
-@Test func oversizedUnterminatedFrameIsRejected() {
-  var framer = LineFramer(limit: 8)
-  #expect(throws: (any Error).self) { try framer.append(Data(repeating: 65, count: 9)) }
-}
-@Test func oversizedTerminatedFrameIsRejected() {
-  var framer = LineFramer(limit: 8)
-  #expect(throws: (any Error).self) { try framer.append(Data("123456789\n".utf8)) }
-}
 @Test func liveSessionIsNotSwept() throws {
   let root = try TemporaryRoot()
   let session = try CaptureSession(root: root.url)
@@ -34,6 +12,7 @@ final class TemporaryRoot {
   #expect(FileManager.default.fileExists(atPath: session.directory.path))
   try session.close()
 }
+
 @Test func orphanIsSweptAfterOwnerReleasesLock() throws {
   let root = try TemporaryRoot()
   var session: CaptureSession? = try CaptureSession(root: root.url)
@@ -67,6 +46,7 @@ final class TemporaryRoot {
   }
   #expect(!exists)
 }
+
 @Test func unrelatedDirectorySurvivesSweep() throws {
   let root = try TemporaryRoot()
   let other = root.url.appendingPathComponent("not-ours")
@@ -93,6 +73,7 @@ final class TemporaryRoot {
   try CaptureSession.sweep(root: root.url)
   #expect(!FileManager.default.fileExists(atPath: directory.path))
 }
+
 @Test func symlinkCannotRedirectCleanup() throws {
   let root = try TemporaryRoot()
   let victim = root.url.appendingPathComponent("keep")
@@ -102,6 +83,7 @@ final class TemporaryRoot {
   try CaptureSession.sweep(root: root.url)
   #expect(FileManager.default.fileExists(atPath: victim.path))
 }
+
 @Test func captureRemovalDoesNotRemoveSessionLock() throws {
   let root = try TemporaryRoot()
   let session = try CaptureSession(root: root.url)
@@ -162,43 +144,4 @@ final class TemporaryRoot {
   }
   #expect(throws: (any Error).self) { try CaptureSession.sweep(root: root.url) }
   #expect(!FileManager.default.fileExists(atPath: other.path))
-}
-@Test func imagePayloadContainsBytesNotPath() throws {
-  let input = try ImageInput.make(png: Data([137, 80, 78, 71]), limit: 8)
-  #expect(input["url"] == "data:image/png;base64,iVBORw==")
-  #expect(input["path"] == nil)
-}
-@Test func imageLimitRejectsLargeCapture() {
-  #expect(throws: (any Error).self) {
-    try ImageInput.make(png: Data(repeating: 0, count: 9), limit: 8)
-  }
-}
-
-@Test func shortPipeReplyArrivesWhileServerStaysOpen() async throws {
-  let root = try TemporaryRoot()
-  let server = root.url.appendingPathComponent("server")
-  try Data(
-    """
-    #!/bin/sh
-    read -r request
-    printf '%s\\n' '{"id":1,"result":{}}'
-    read -r initialized
-    read -r next
-    """.utf8
-  ).write(to: server)
-  try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: server.path)
-  let rpc = CodexRPC()
-  let deadline = Task {
-    try? await Task.sleep(for: .seconds(2))
-    await rpc.stop()
-  }
-  do {
-    try await rpc.start(executable: server)
-    deadline.cancel()
-    await rpc.stop()
-  } catch {
-    deadline.cancel()
-    await rpc.stop()
-    throw error
-  }
 }

@@ -19,7 +19,6 @@ import SwiftUI
   private var panel: FloatingPanel?
   private var model: ChatModel?
   private var shortcutPanel: FloatingPanel?
-  private var sweepTimer: Timer?
   private let lifecycle = ChatLifecycle()
   private var sweepRunning = false
 
@@ -40,7 +39,7 @@ import SwiftUI
     hotkey.pressed = { [weak self] in self?.beginCapture() }
     do { try hotkey.register() } catch { showError(error) }
     sweep()
-    sweepTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+    _ = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
       Task { @MainActor in self?.sweep() }
     }
   }
@@ -189,4 +188,11 @@ import SwiftUI
     }
     return .terminateLater
   }
+}
+
+final class FloatingPanel: NSPanel {
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { false }
+  var escape: (() -> Void)?
+  override func cancelOperation(_ sender: Any?) { escape?() }
 }
