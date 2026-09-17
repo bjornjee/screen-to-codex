@@ -4,6 +4,7 @@ import SwiftUI
 
 @main struct ScreenToCodexApp {
   static func main() {
+    if PermissionRelaunch.runIfRequested() { return }
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
@@ -15,6 +16,7 @@ import SwiftUI
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private let capture = RegionCapture()
   private let hotkey = GlobalHotkey()
+  private let screenAccess = ScreenAccess()
   private var statusItem: NSStatusItem!
   private var panel: FloatingPanel?
   private var model: ChatModel?
@@ -30,6 +32,8 @@ import SwiftUI
     let menu = NSMenu()
     menu.addItem(withTitle: "Capture region", action: #selector(beginCapture), keyEquivalent: "")
     menu.addItem(
+      withTitle: "Screen access…", action: #selector(showScreenAccess), keyEquivalent: "")
+    menu.addItem(
       withTitle: "Change shortcut…", action: #selector(changeShortcut), keyEquivalent: "")
     menu.addItem(withTitle: "Retry pending cleanup", action: #selector(sweep), keyEquivalent: "")
     menu.addItem(.separator())
@@ -38,6 +42,11 @@ import SwiftUI
     statusItem.menu = menu
     hotkey.pressed = { [weak self] in self?.beginCapture() }
     do { try hotkey.register() } catch { showError(error) }
+    screenAccess.capture = { [weak self] in self?.beginCapture() }
+    if !CGPreflightScreenCaptureAccess() || CommandLine.arguments.contains("--permission-reopened")
+    {
+      screenAccess.show()
+    }
     sweep()
     _ = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
       Task { @MainActor in self?.sweep() }
@@ -53,10 +62,12 @@ import SwiftUI
       NSApp.activate(ignoringOtherApps: true)
       return
     }
+    guard screenAccess.prepareCapture() else { return }
     capture.start { [weak self] result in
       switch result {
       case .success(let (png, rect)): self?.openChat(png: png, rect: rect)
-      case .failure(let error): self?.showError(error)
+      case .failure(let error):
+        if error is ScreenAccessError { self?.screenAccess.show() } else { self?.showError(error) }
       }
     }
   }
@@ -172,7 +183,12 @@ import SwiftUI
     NSApp.activate(ignoringOtherApps: true)
     alert.runModal()
   }
-  @objc private func quit() { NSApp.terminate(nil) }
+  @objc private func showScreenAccess() { screenAccess.show() }
+  func applicationDidBecomeActive(_ notification: Notification) { screenAccess.refresh() }
+  @objc private func quit() {
+    screenAccess.cancelRelaunch()
+    NSApp.terminate(nil)
+  }
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     capture.cancel()
     guard model != nil || lifecycle.isBusy else { return .terminateNow }
