@@ -7,24 +7,90 @@ held. A click without dragging keeps selection open. Send the screenshot and a
 question to Codex, then read replies and ask follow-ups in the same rounded
 Liquid Glass overlay. Closing it queues the disposable session for cleanup.
 
+## Prerequisites
+
+- macOS Tahoe 26 or later.
+- An active Xcode or Command Line Tools installation with Swift 6 and the macOS 26
+  SDK. The scripts use Apple's `swift`, `sips`, `iconutil`, and `codesign` tools.
+- An installed, signed-in Codex runtime with ephemeral app-server support. Tested
+  against the desktop-bundled CLI 0.154.0-alpha.6.2. The app checks these executable
+  paths in order: `/Applications/Codex.app/Contents/Resources/codex`,
+  `/opt/homebrew/bin/codex`, then `/usr/local/bin/codex`. A CLI elsewhere on `PATH`
+  is not discovered automatically. The Codex desktop app need not be open.
+
+There are no third-party Swift package dependencies. From the repository root,
+check the selected development tools before building:
+
+```sh
+xcode-select -p
+swift --version
+xcrun --sdk macosx --show-sdk-version
+```
+
 ## Build and run
 
-Requires macOS 26+, Swift 6, and an installed, signed-in Codex CLI with ephemeral
-app-server support. Tested against the desktop-bundled CLI 0.154.0-alpha.6.2.
-There are no third-party package dependencies.
+For a first build, create the release app bundle and launch it through LaunchServices:
 
 ```sh
 scripts/build.sh
 scripts/run.sh
 ```
 
-Launching opens only a menu-bar viewfinder icon. The global shortcut starts
-selection; no chat appears until you release the mouse. The menu also contains
-Capture region, Change shortcut, Retry pending cleanup, and Quit.
+The output is `dist/screen-to-codex.app`. Building does not launch or install it.
+For later launches, run **only `scripts/run.sh`**: it opens the existing bundle
+without rebuilding, and builds only if that default bundle is missing. The build
+script refuses to overwrite an existing ad-hoc signed bundle, protecting its
+Screen Recording grant. Do not use the replacement override for routine launches.
+
+To check a new build while keeping the authorized bundle intact, use a separate
+staging output (choose a new directory if this one already contains an app):
+
+```sh
+scripts/build.sh dist/staging/screen-to-codex.app
+```
+
+`scripts/run.sh` always opens the default output; it does not accept a staging
+path. If you intentionally want to use the staged app, quit the running copy and
+open that exact bundle with Finder. A new ad-hoc build may need its own permission
+grant.
 
 Always launch the `.app` with Finder or `scripts/run.sh`. Running the executable
 inside `Contents/MacOS` directly can attribute macOS privacy requests to the
 terminal's host instead of screen-to-codex.
+
+## Capture and chat
+
+1. Launch the app and look for the viewfinder icon in the menu bar. No chat window
+   appears at launch; keep the menu-bar process running to receive the shortcut.
+2. Press **Control–Option–Space**, then release the shortcut keys.
+3. Click and hold, drag a region on one display, then release the mouse. A click
+   without dragging keeps selection open; **Escape** cancels selection.
+4. Allow screen access if prompted, then repeat the capture after granting it.
+   A successful capture opens the floating screenshot composer beside the region.
+5. Enter a question, optionally choose **Model** and **Effort**, and click **Send**.
+   Read the reply and send follow-ups in the same overlay; the conversation retains
+   the screenshot context without another capture.
+6. Close the overlay when finished. Cleanup is silent, with no confirmation toast.
+   To capture a different region, close the current chat first; the shortcut brings
+   an existing chat forward instead of starting a second one.
+
+The menu also offers **Capture region**, **Change shortcut…**, **Retry pending
+cleanup**, and **Quit screen-to-codex**.
+
+### Model and effort defaults
+
+Each new overlay reads your resolved Codex `model` and `model_reasoning_effort`
+settings without changing them. Unset settings use runtime catalog defaults;
+unavailable saved choices fall back to an available option with a visible notice.
+Only visible image-capable models with supported effort choices are offered.
+
+Model and Effort changes apply to the next message, including follow-ups. The
+menus are disabled while sending. Changing model resets an unsupported effort to
+that model's default. Manual choices last only until the overlay closes. If model
+settings fail to load, use the inline retry after checking the runtime installation
+and sign-in.
+
+## Screen Recording permission troubleshooting
 
 Selection opens immediately; permission is checked after mouse release, before
 any screenshot is taken. On first capture, allow **screen-to-codex** under System Settings → Privacy &
@@ -33,6 +99,20 @@ name for screenshots too. System audio and microphone capture are explicitly
 disabled. No Accessibility permission is required for the global shortcut.
 If macOS quits the app during the permission change, reopen the `.app` once.
 The menu-bar process must be running to receive its global shortcut.
+
+If capture still fails:
+
+1. Reopen the unchanged `.app` with `scripts/run.sh` or Finder, especially if macOS
+   quit it while you changed permission. Do not rebuild as a troubleshooting step.
+2. Confirm that the permission entry belongs to the exact bundle you are launching.
+   An enabled switch for an older build does not prove the current binary has access.
+3. If you intentionally replaced an ad-hoc build, follow the signing guidance below
+   to remove the stale entry and authorize the replacement once.
+4. If the shortcut does nothing, confirm the menu-bar icon is present, try **Capture
+   region** from its menu, or choose another shortcut with **Change shortcut…**.
+
+Do not edit macOS privacy databases or weaken signature checks to work around a
+stale grant.
 
 ### Local development signing
 
@@ -44,8 +124,8 @@ an already granted binary. `scripts/build.sh` refuses to overwrite an existing
 bundle with ad-hoc signing by default. For an intentional update only, use
 `REPLACE_ADHOC_APP=1 scripts/build.sh`, then re-authorize that exact build once.
 Use `scripts/run.sh` to reopen the current app without rebuilding.
-To prepare an update without replacing the authorized app, pass a separate output
-path, for example `scripts/build.sh dist/model-controls/screen-to-codex.app`.
+To prepare an update without replacing the authorized app, use the separate
+staging output described above.
 
 For permission continuity across rebuilds, use an existing Apple Development
 signing identity:
@@ -66,14 +146,8 @@ The task starts in read-only mode; supported approval and question requests
 appear in the overlay, and unsupported actions are rejected.
 
 The composer has Model and Effort menus populated by the installed runtime.
-Only visible image-capable models are offered. Effort choices track the selected
-model; unsupported choices reset to that model's default. Both selections apply
-to the next message, including follow-ups in the same ephemeral task, and are
-disabled while sending. Each new overlay reads the user's resolved Codex model
-and `model_reasoning_effort` through `config/read`, respecting `~/.codex` (or the
-runtime's configured `CODEX_HOME`) without modifying it. Manual choices last only
-for the open overlay. Unset settings use the catalog defaults; unsupported saved
-choices use an available option with a visible notice. Config reads have a
+Defaults are read through `config/read`, respecting `~/.codex` (or the runtime's
+configured `CODEX_HOME`) without modifying it. Config reads have a
 15-second deadline. Catalog loading is asynchronous, capped at five pages of 50
 entries, and offers an inline retry if settings cannot be loaded.
 
@@ -92,6 +166,8 @@ in-memory transcript, queues cleanup, stops the owned runtime, and removes the
 session directory without displaying a toast. Startup and periodic cleanup skip
 locked live sessions and unrelated files. Failed deletions retain their ownership
 markers for retry and do not block other sessions in the cleanup batch.
+If cleanup is pending, the menu-bar tooltip says so; use **Retry pending cleanup**
+or let startup/periodic cleanup retry automatically.
 No clipboard, screenshot gallery, or local transcript database.
 
 Opening is reserved before screenshot storage begins, preventing overlapping
@@ -117,14 +193,24 @@ swift format format --in-place --recursive Sources Tests Package.swift
 swift format lint --strict --recursive Sources Tests Package.swift
 ```
 
+Run the local suite without sending a real Codex request:
+
 ```sh
 scripts/test.sh
+```
+
+The suite includes pipe streaming, payload limits, and cleanup ownership tests.
+The real-runtime integration test is opt-in and requires the desktop-bundled CLI
+at `/Applications/Codex.app/Contents/Resources/codex` (it does not use the app's CLI
+fallback paths):
+
+```sh
 SCREEN_TO_CODEX_INTEGRATION=1 scripts/test.sh
 ```
 
-The second command sends a generated blue-circle image using the signed-in Codex
-account. It creates only its own disposable test task. The suite includes pipe
-streaming, payload limits, and cleanup ownership tests.
+This sends a generated blue-circle image and a follow-up using the signed-in Codex
+account, consuming account usage. It creates only its own disposable test task;
+it does not capture the screen or exercise macOS permission dialogs.
 
 The user verified hotkey → click-and-drag → mouse-up → screenshot and chat on
 2026-09-16; runtime logs confirm capture completion and chat opening. Further live
