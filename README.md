@@ -36,11 +36,13 @@ scripts/build.sh
 scripts/run.sh
 ```
 
-The output is `dist/screen-to-codex.app`. Building does not launch or install it.
+The output is `~/Applications/screen-to-codex.app`, shared by all worktrees.
+Building installs the verified bundle there but does not launch or restart it.
 For later launches, run **only `scripts/run.sh`**: it opens the existing bundle
-without rebuilding, and builds only if that default bundle is missing. The build
-script refuses to overwrite an existing ad-hoc signed bundle, protecting its
-Screen Recording grant. Do not use the replacement override for routine launches.
+without rebuilding, and builds only if that bundle is missing. A signing certificate
+is optional for local source builds. When available, it is remembered and reused;
+otherwise the app is signed ad hoc. Updates are checked against the installed app's
+identity before replacement. Failed builds leave the existing app intact.
 
 To check a new build while keeping the authorized bundle intact, use a separate
 staging output (choose a new directory if this one already contains an app):
@@ -49,10 +51,9 @@ staging output (choose a new directory if this one already contains an app):
 scripts/build.sh dist/staging/screen-to-codex.app
 ```
 
-`scripts/run.sh` always opens the default output; it does not accept a staging
-path. If you intentionally want to use the staged app, quit the running copy and
-open that exact bundle with Finder. A new ad-hoc build may need its own permission
-grant.
+To run a staged app, quit the running copy first, then use
+`scripts/run.sh dist/staging/screen-to-codex.app`. Both scripts accept an optional
+bundle path. Keep only one copy running so it owns the global shortcut.
 
 Always launch the `.app` with Finder or `scripts/run.sh`. Running the executable
 inside `Contents/MacOS` directly can attribute macOS privacy requests to the
@@ -65,7 +66,8 @@ terminal's host instead of screen-to-codex.
 2. Press **Control–Option–Space**, then release the shortcut keys.
 3. Click and hold, drag a region on one display, then release the mouse. A click
    without dragging keeps selection open; **Escape** cancels selection.
-4. Allow screen access if prompted, then repeat the capture after granting it.
+4. If screen access is missing, use **Open Settings** in the setup window before
+   selecting a region. After granting access, choose **Capture Region**.
    A successful capture opens the floating screenshot composer beside the region.
 5. Enter a question, optionally choose **Model** and **Effort**, and click **Send**.
    Read the reply and send follow-ups in the same overlay; the conversation retains
@@ -74,7 +76,7 @@ terminal's host instead of screen-to-codex.
    To capture a different region, close the current chat first; the shortcut brings
    an existing chat forward instead of starting a second one.
 
-The menu also offers **Capture region**, **Change shortcut…**, **Retry pending
+The menu also offers **Capture region**, **Screen access…**, **Change shortcut…**, **Retry pending
 cleanup**, and **Quit screen-to-codex**.
 
 ### Model and effort defaults
@@ -92,19 +94,30 @@ and sign-in.
 
 ## Screen Recording permission troubleshooting
 
-Selection opens immediately; permission is checked after mouse release, before
-any screenshot is taken. On first capture, allow **screen-to-codex** under System Settings → Privacy &
+Screen access is checked before selection begins, and again before taking the
+screenshot. On first launch, allow **screen-to-codex** under System Settings → Privacy &
 Security → Screen & System Audio Recording. macOS uses this combined permission
 name for screenshots too. System audio and microphone capture are explicitly
 disabled. No Accessibility permission is required for the global shortcut.
-If macOS quits the app during the permission change, reopen the `.app` once.
-The menu-bar process must be running to receive its global shortcut.
+Use **Open Settings** in the app's **Screen access…** window to start setup. A
+temporary helper watches for macOS quitting the app and reopens the same bundle
+once, showing **Ready to capture** when access is available. The helper expires
+after three minutes; **Not Now**, closing setup, or the app's **Quit** command
+cancels it. **Check Again** rechecks access without rebuilding or changing any
+system settings. Returning from Settings also refreshes the status.
+If automatic reopening cannot start, setup still opens Settings and explains how
+to reopen the app manually.
+
+The menu-bar process must be running to receive its global shortcut. If you change
+permission outside this setup flow, or after the helper expires, reopen the app
+with `scripts/run.sh` if macOS quits it.
 
 If capture still fails:
 
 1. Reopen the unchanged `.app` with `scripts/run.sh` or Finder, especially if macOS
    quit it while you changed permission. Do not rebuild as a troubleshooting step.
-2. Confirm that the permission entry belongs to the exact bundle you are launching.
+2. In **Screen access…**, expand **Already enabled, but still blocked?** and use
+   **Show this app in Finder** to identify the exact bundle you are launching.
    An enabled switch for an older build does not prove the current binary has access.
 3. If you intentionally replaced an ad-hoc build, follow the signing guidance below
    to remove the stale entry and authorize the replacement once.
@@ -116,26 +129,63 @@ stale grant.
 
 ### Local development signing
 
-The default build uses ad-hoc signing. A changed binary has a new code identity,
-so an old enabled Screen Recording entry can fail with “Failed to match existing
-code requirement.” Quit the app, remove its stale permission entry, reopen it,
-and grant screen access to the new build. Do not repeatedly rebuild while testing
-an already granted binary. `scripts/build.sh` refuses to overwrite an existing
-bundle with ad-hoc signing by default. For an intentional update only, use
-`REPLACE_ADHOC_APP=1 scripts/build.sh`, then re-authorize that exact build once.
-Use `scripts/run.sh` to reopen the current app without rebuilding.
-To prepare an update without replacing the authorized app, use the separate
-staging output described above.
+**No developer account or certificate is required to build locally.** Without a
+configured or available signing certificate, `scripts/build.sh` creates an ad-hoc
+signed app. macOS can require screen access again when its binary changes. A
+changed ad-hoc app is protected from accidental replacement; to intentionally
+update it, use `REPLACE_ADHOC_APP=1 scripts/build.sh`, then re-authorize that copy.
+This override cannot downgrade a certificate-signed app or change its signer.
 
-For permission continuity across rebuilds, use an existing Apple Development
-signing identity:
+For developers who want permission continuity across rebuilds, optionally create
+an **Apple Development** certificate once in **Xcode → Settings → Apple
+Accounts → Manage Certificates → +**. Add your Apple account first if necessary.
+Check availability with `security find-identity -v -p codesigning`.
+
+When exactly one valid identity exists, the first build selects it and remembers
+its certificate hash in the repository's local Git configuration, shared across
+worktrees. If several exist, select one for the first build:
 
 ```sh
 CODE_SIGN_IDENTITY='Apple Development: Your Name (TEAMID)' scripts/build.sh
 ```
 
+Subsequent builds need only `scripts/build.sh`. The build refuses to fall back to
+ad-hoc signing if the remembered certificate is missing or expired. A replacement
+certificate can be selected with the same environment variable; an update must
+still satisfy the installed app's signing requirement. The build never loosens
+that requirement or edits macOS permissions.
+
+**One-time migration from older ad-hoc builds:** quit the old copy in `dist`, build
+and launch the new default in `~/Applications`, then remove the stale Screen
+Recording entry and grant access to this copy once. Ad-hoc identity depends on the
+old binary's hash, so a changed build cannot preserve that identity. If the new
+default already contains an ad-hoc app, move it aside in Finder before this
+one-time migration.
+
+If switching Screen Recording off/on still leaves the old entry ineffective,
+quit the app and reset only its stale approval before reopening the signed copy:
+
+```sh
+tccutil reset ScreenCapture local.screen-to-codex
+scripts/run.sh
+```
+
+Use **Open Settings** in the app and approve the fresh request. This reset removes
+the old grant; it does not grant access automatically.
+This is a one-time migration repair, not part of routine builds.
+
 The build does not create certificates, change trust settings, or reset system
-permissions. [Apple DTS confirms this ad-hoc signing behavior](https://developer.apple.com/forums/thread/819406).
+permissions. [Apple explains how signing requirements identify updates](https://developer.apple.com/library/archive/technotes/tn2206/_index.html).
+
+### Distribution to other users
+
+Users of a packaged release do not need Xcode, an Apple developer account, or their
+own certificate. The publisher should sign releases with **Developer ID Application**
+and notarize them before distribution; signing and notarization are publisher
+responsibilities. Keep the bundle identifier and signing identity consistent for
+updates. Apple Development signing is for local development, not the public release
+process. This repository's build script creates local builds; it does not yet
+publish notarized release packages. See [Apple's distribution guidance](https://developer.apple.com/developer-id/).
 
 ## Conversation and cleanup
 
@@ -199,7 +249,8 @@ Run the local suite without sending a real Codex request:
 scripts/test.sh
 ```
 
-The suite includes pipe streaming, payload limits, and cleanup ownership tests.
+The suite includes build identity/replacement checks, native process-exit recovery,
+pipe streaming, payload limits, and cleanup ownership tests.
 The real-runtime integration test is opt-in and requires the desktop-bundled CLI
 at `/Applications/Codex.app/Contents/Resources/codex` (it does not use the app's CLI
 fallback paths):
