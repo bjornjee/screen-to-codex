@@ -105,6 +105,8 @@ once, showing **Ready to capture** when access is available. The helper expires
 after three minutes; **Not Now**, closing setup, or the app's **Quit** command
 cancels it. **Check Again** rechecks access without rebuilding or changing any
 system settings. Returning from Settings also refreshes the status.
+If automatic reopening cannot start, setup still opens Settings and explains how
+to reopen the app manually.
 
 The menu-bar process must be running to receive its global shortcut. If you change
 permission outside this setup flow, or after the helper expires, reopen the app

@@ -64,17 +64,22 @@ enum ScreenAccessError: Error { case denied }
     flowLog.info("event=permission.setup_shown granted=\(self.granted)")
   }
 
-  func refresh() {
-    granted = CGPreflightScreenCaptureAccess()
+  func refresh(preflight: () -> Bool = CGPreflightScreenCaptureAccess) {
+    let wasGranted = granted
+    granted = preflight()
     if granted {
-      status = "Screen access is ready. Your shortcut works while the app is running."
-    } else if relaunch == nil {
+      status = "Screen access is ready. Capture a region now, or use your configured shortcut."
+    } else if status.isEmpty || wasGranted {
       status =
         "Allow screen-to-codex to capture the region you select. Nothing is sent until you press Send."
     }
   }
 
-  func primaryAction() {
+  func primaryAction(
+    relaunchExecutable: URL? = Bundle.main.executableURL,
+    requestAccess: () -> Bool = CGRequestScreenCaptureAccess,
+    openSettings: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+  ) {
     if granted {
       guard prepareCapture() else { return }
       capture?()
@@ -83,7 +88,7 @@ enum ScreenAccessError: Error { case denied }
     cancelRelaunch()
     do {
       let child = Process()
-      child.executableURL = Bundle.main.executableURL
+      child.executableURL = relaunchExecutable
       child.arguments = [PermissionRelaunch.argument, String(getpid())]
       child.standardInput = FileHandle.nullDevice
       child.standardOutput = FileHandle.nullDevice
@@ -102,20 +107,21 @@ enum ScreenAccessError: Error { case denied }
       flowLog.info("event=permission.relaunch_armed")
       status =
         "Enable screen-to-codex in Screen & System Audio Recording. If macOS quits this app, it will reopen automatically."
-      if CGRequestScreenCaptureAccess() {
-        refresh()
-        return
-      }
-      let settings = URL(
-        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
-      if !NSWorkspace.shared.open(settings) {
-        cancelRelaunch()
-        status =
-          "Open System Settings → Privacy & Security → Screen & System Audio Recording, then check again."
-      }
     } catch {
-      status = "Could not prepare automatic reopening. Try Open Settings again."
+      status =
+        "Automatic reopening is unavailable. After allowing screen access, reopen screen-to-codex from Finder."
       flowLog.error("event=permission.relaunch_failed error=\(error.localizedDescription)")
+    }
+    if requestAccess() {
+      refresh()
+      return
+    }
+    let settings = URL(
+      string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+    if !openSettings(settings) {
+      cancelRelaunch()
+      status =
+        "Open System Settings → Privacy & Security → Screen & System Audio Recording, then reopen screen-to-codex."
     }
   }
 
