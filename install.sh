@@ -6,25 +6,37 @@ fail() {
   exit 1
 }
 
-[[ $# -le 1 ]] || fail 'Usage: bash install.sh [absolute-install-directory]'
+[[ $# -le 1 ]] || fail 'Usage: bash install.sh [install-directory]'
 [[ "$(uname -s)" == Darwin ]] || fail 'screen-to-codex requires macOS.'
-[[ "$(uname -m)" == arm64 ]] || fail 'This release requires an Apple Silicon Mac. Run from a native terminal, without Rosetta.'
+[[ "$(uname -m)" == arm64 || "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" == 1 ]] \
+  || fail 'This release requires an Apple Silicon Mac.'
 macos="$(sw_vers -productVersion)"
 [[ "${macos%%.*}" -ge 26 ]] || fail 'screen-to-codex requires macOS 26 or later.'
 
-version='0.1.1'
+version='0.1.2'
 asset='screen-to-codex-macos-arm64.zip'
 base="https://github.com/bjornjee/screen-to-codex/releases/download/v$version"
 install_dir="${1:-$HOME/Applications}"
-[[ "$install_dir" == /* ]] || fail 'The install directory must be an absolute path.'
-target="$install_dir/screen-to-codex.app"
-[[ ! -e "$target" && ! -L "$target" ]] || fail "An app already exists at $target. Quit it and move it aside before installing; an update may need a fresh Screen Recording grant."
-
 mkdir -p "$install_dir"
-lock="$install_dir/.screen-to-codex-install.lock"
+install_dir="$(cd "$install_dir" && pwd -P)"
+target="$install_dir/screen-to-codex.app"
+check_destination() {
+  [[ ! -L "$target" ]] || fail "The app destination is a symlink: $target"
+  if [[ -e "$target" ]]; then
+    [[ -d "$target" && "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$target/Contents/Info.plist" 2>/dev/null || true)" == local.screen-to-codex ]] \
+      || fail "The destination contains a different app or file: $target"
+  fi
+}
+check_destination
+
+lock="$target.build-lock"
 mkdir "$lock" 2>/dev/null || fail "Another installation may be in progress. If no installer is running, remove the empty lock directory: $lock"
 scratch=''
+backup=''
 cleanup() {
+  if [[ -n "$backup" && -d "$backup/screen-to-codex.app" && ! -e "$target" ]]; then
+    mv "$backup/screen-to-codex.app" "$target"
+  fi
   if [[ -n "$scratch" ]]; then
     rm -rf "$scratch"
   fi
@@ -53,9 +65,17 @@ app="$scratch/unpacked/screen-to-codex.app"
 codesign --verify --strict "$app" || fail 'App signature verification failed; no app was installed.'
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == local.screen-to-codex ]] || fail 'Unexpected app identity.'
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" == "$version" ]] || fail 'Unexpected app version.'
-[[ ! -e "$target" && ! -L "$target" ]] || fail "An app already exists at $target; no files were replaced."
-mv "$app" "$target"
+check_destination
+if [[ -d "$target" ]]; then
+  backup="$(mktemp -d "$install_dir/screen-to-codex-backup.XXXXXX")"
+  mv "$target" "$backup/screen-to-codex.app"
+fi
+mv "$app" "$target" || fail 'Could not install the new app; restoring the previous copy.'
 printf 'Installed %s\n' "$target"
+if [[ -n "$backup" ]]; then
+  printf 'Previous copy saved at %s/screen-to-codex.app\n' "$backup"
+  printf '%s\n' 'Quit any running copy and reopen the installed app. Screen Recording may need approval again.'
+fi
 printf '%s\n' 'Open the app in Finder, then press Control–Option–Space.'
 printf '%s\n' 'If macOS blocks this unnotarized release, use System Settings → Privacy & Security → Open Anyway.'
 printf '%s\n' 'Codex must be installed and signed in. Allow Screen Recording when prompted.'

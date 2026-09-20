@@ -36,6 +36,21 @@ private func completedReply(_ rpc: CodexRPC) async throws -> String {
 
 @Test(.enabled(if: ProcessInfo.processInfo.environment["SCREEN_TO_CODEX_INTEGRATION"] == "1"))
 func realImageFollowupAndEphemeralDisposal() async throws {
+  try await exerciseImageConversation(
+    binary: URL(fileURLWithPath: "/Applications/Codex.app/Contents/Resources/codex"),
+    checkExtendedThreadMetadata: true)
+}
+
+@Test(.enabled(if: ProcessInfo.processInfo.environment["SCREEN_TO_CODEX_TEST_RUNTIME"] != nil))
+func compatibleRuntimeImageFollowupAndEphemeralDisposal() async throws {
+  let path = try #require(ProcessInfo.processInfo.environment["SCREEN_TO_CODEX_TEST_RUNTIME"])
+  // 0.145 supports image conversations but omits model/effort in thread/read.
+  try await exerciseImageConversation(
+    binary: URL(fileURLWithPath: path), checkExtendedThreadMetadata: false)
+}
+
+private func exerciseImageConversation(binary: URL, checkExtendedThreadMetadata: Bool) async throws
+{
   let root = try TemporaryRoot()
   let session = try CaptureSession(root: root.url)
   let png: Data = await MainActor.run {
@@ -53,7 +68,6 @@ func realImageFollowupAndEphemeralDisposal() async throws {
   }
   let source = try session.writeCapture(png)
   let rpc = CodexRPC()
-  let binary = URL(fileURLWithPath: "/Applications/Codex.app/Contents/Resources/codex")
   do {
     try await rpc.start(executable: binary)
     let models = try await ModelPage.load(using: rpc)
@@ -89,11 +103,13 @@ func realImageFollowupAndEphemeralDisposal() async throws {
     #expect(!FileManager.default.fileExists(atPath: source.path))
     let first = try await completedReply(rpc).lowercased()
     #expect(first.contains("blue") && first.contains("circle"))
-    let initialSettings = try await rpc.request(
-      "thread/read", params: ["threadId": id, "includeTurns": false])
-    let initialThread = try #require(initialSettings["thread"] as? [String: Any])
-    #expect(initialThread["model"] as? String == selection.model.model)
-    #expect(initialThread["reasoningEffort"] as? String == selection.effort)
+    if checkExtendedThreadMetadata {
+      let initialSettings = try await rpc.request(
+        "thread/read", params: ["threadId": id, "includeTurns": false])
+      let initialThread = try #require(initialSettings["thread"] as? [String: Any])
+      #expect(initialThread["model"] as? String == selection.model.model)
+      #expect(initialThread["reasoningEffort"] as? String == selection.effort)
+    }
     if let alternate = models.first(where: { $0.id != selection.model.id }) {
       try selection.selectModel(alternate.id)
     }
@@ -114,11 +130,13 @@ func realImageFollowupAndEphemeralDisposal() async throws {
         ]))
     let second = try await completedReply(rpc).lowercased()
     #expect(second.contains("blue") && second.contains("circle"))
-    let settings = try await rpc.request(
-      "thread/read", params: ["threadId": id, "includeTurns": false])
-    let updatedThread = try #require(settings["thread"] as? [String: Any])
-    #expect(updatedThread["model"] as? String == selection.model.model)
-    #expect(updatedThread["reasoningEffort"] as? String == selection.effort)
+    if checkExtendedThreadMetadata {
+      let settings = try await rpc.request(
+        "thread/read", params: ["threadId": id, "includeTurns": false])
+      let updatedThread = try #require(settings["thread"] as? [String: Any])
+      #expect(updatedThread["model"] as? String == selection.model.model)
+      #expect(updatedThread["reasoningEffort"] as? String == selection.effort)
+    }
     await rpc.stop()
     try session.close()
     #expect(!FileManager.default.fileExists(atPath: session.directory.path))

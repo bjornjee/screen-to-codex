@@ -41,6 +41,17 @@ cat > "$scratch/bin/sw_vers" <<'VERSION'
 #!/usr/bin/env bash
 printf '%s\n' "${TEST_MACOS:-26.0}"
 VERSION
+cat > "$scratch/bin/sysctl" <<'HARDWARE'
+#!/usr/bin/env bash
+printf '%s\n' "${TEST_ARM_HARDWARE:-0}"
+HARDWARE
+cat > "$scratch/bin/mv" <<'MOVE'
+#!/usr/bin/env bash
+if [[ "${TEST_INSTALL_MOVE_FAILURE:-0}" == 1 && "$1" == */unpacked/screen-to-codex.app ]]; then
+  exit 1
+fi
+exec /bin/mv "$@"
+MOVE
 chmod +x "$scratch/bin/"*
 export PATH="$scratch/bin:$PATH" TEST_FIXTURE="$scratch"
 
@@ -67,8 +78,34 @@ case "${1:-all}" in
   *) exit 2 ;;
 esac
 
-expect_failure 'already exists' bash "$repo/install.sh" "$scratch/Applications with spaces"
-printf '%s\n' 'PASS: existing installation is preserved'
+printf 'previous copy\n' > "$scratch/Applications with spaces/screen-to-codex.app/previous-copy"
+bash "$repo/install.sh" "$scratch/Applications with spaces"
+[[ ! -e "$scratch/Applications with spaces/screen-to-codex.app/previous-copy" ]]
+backups=("$scratch/Applications with spaces"/screen-to-codex-backup.*/screen-to-codex.app/previous-copy)
+[[ ${#backups[@]} == 1 && -f "${backups[0]}" ]]
+printf '%s\n' 'PASS: update installs the release and preserves the previous copy'
+printf 'keep on failure\n' > "$scratch/Applications with spaces/screen-to-codex.app/rollback-marker"
+expect_failure 'Could not install' env TEST_INSTALL_MOVE_FAILURE=1 bash "$repo/install.sh" "$scratch/Applications with spaces"
+[[ -f "$scratch/Applications with spaces/screen-to-codex.app/rollback-marker" ]]
+printf '%s\n' 'PASS: failed replacement restores the previous app'
+mkdir "$scratch/Applications with spaces/screen-to-codex.app.build-lock"
+expect_failure 'in progress' bash "$repo/install.sh" "$scratch/Applications with spaces"
+rmdir "$scratch/Applications with spaces/screen-to-codex.app.build-lock"
+printf '%s\n' 'PASS: installer respects the source build lock'
+(cd "$scratch" && bash "$repo/install.sh" 'relative applications')
+[[ -d "$scratch/relative applications/screen-to-codex.app" ]]
+printf '%s\n' 'PASS: relative install paths are accepted'
+TEST_ARCH=x86_64 TEST_ARM_HARDWARE=1 bash "$repo/install.sh" "$scratch/rosetta"
+[[ -d "$scratch/rosetta/screen-to-codex.app" ]]
+printf '%s\n' 'PASS: Apple Silicon under Rosetta is accepted'
+mkdir -p "$scratch/symlink"
+ln -s "$scratch/rosetta/screen-to-codex.app" "$scratch/symlink/screen-to-codex.app"
+expect_failure 'symlink' bash "$repo/install.sh" "$scratch/symlink"
+printf '%s\n' 'PASS: symlink app destination is protected'
+mkdir -p "$scratch/unrelated/screen-to-codex.app"
+expect_failure 'different app' bash "$repo/install.sh" "$scratch/unrelated"
+[[ -d "$scratch/unrelated/screen-to-codex.app" ]]
+printf '%s\n' 'PASS: unrelated app destination is protected'
 expect_failure 'macOS' env TEST_OS=Linux bash "$repo/install.sh" "$scratch/linux"
 printf '%s\n' 'PASS: unsupported operating system rejected'
 expect_failure 'Apple Silicon' env TEST_ARCH=x86_64 bash "$repo/install.sh" "$scratch/intel"

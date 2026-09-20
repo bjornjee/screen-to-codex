@@ -10,8 +10,10 @@ Liquid Glass overlay. Closing it queues the disposable session for cleanup.
 ## Install
 
 - An Apple Silicon Mac running macOS Tahoe 26 or later.
-- An installed, signed-in Codex runtime with ephemeral app-server support. Tested
-  against the desktop-bundled CLI 0.154.0-alpha.6.2. The app checks these executable
+- An installed, signed-in Codex runtime with ephemeral app-server support. The
+  image/follow-up/disposal workflow is verified with CLI 0.145.0-alpha.1 and was
+  previously verified with desktop-bundled CLI 0.154.0-alpha.6.2. These are tested
+  versions, not a minimum-version check. The app checks these executable
   paths in order: `/Applications/Codex.app/Contents/Resources/codex`,
   `/opt/homebrew/bin/codex`, then `/usr/local/bin/codex`. A CLI elsewhere on `PATH`
   is not discovered automatically. The Codex desktop app need not be open.
@@ -26,8 +28,11 @@ curl -fLsS --proto '=https' --proto-redir '=https' \
 
 The installer downloads the prebuilt app from its pinned GitHub release, checks
 its SHA-256 checksum and code signature, and installs it to `~/Applications`.
-It does not use `sudo`, launch the app, or replace an existing installation.
-To choose a different directory, run `bash install.sh "/absolute/path/Applications"`.
+It does not use `sudo` or launch the app. An existing copy of screen-to-codex is
+saved in a `screen-to-codex-backup.*` directory beside the app before replacement;
+a failed replacement restores it. Other apps, files, and symlinks are not replaced.
+Relative install paths and Apple Silicon terminals running under Rosetta are supported.
+To choose a different directory, run `bash install.sh "./Applications"`.
 If you already cloned the repository, you can run `bash install.sh` directly.
 
 Open `~/Applications/screen-to-codex.app` in Finder, then press
@@ -37,10 +42,18 @@ follow [Apple's instructions](https://support.apple.com/en-gb/102445): attempt t
 open it, then use **System Settings → Privacy & Security → Open Anyway**.
 The installer does not remove quarantine attributes or disable Gatekeeper.
 
-For an update, quit the app and move the old bundle aside before rerunning the
-installer. Keep the old bundle if you may want to roll back. A new ad-hoc build
-may need a fresh Screen Recording grant. To uninstall, quit and move the installed
-app to the Trash.
+For an update, quit the app, download the latest installer, and run it again.
+Keep the printed backup path if you may want to roll back; move the new app aside
+and restore the backup to do so. You can remove old backup folders after verifying
+an update. A new ad-hoc build may need a fresh Screen Recording grant.
+To uninstall, quit and move the installed app to the Trash.
+
+The installer does not inspect or require a particular Codex version. macOS 26+
+and Apple Silicon are required by this prebuilt app. If Codex reports an invalid
+configuration, resolve that runtime configuration error separately. For the
+0.145.0-alpha.1 compatibility test, newer `agents.default_subagent_model` and
+`agents.default_subagent_reasoning_effort` settings on the test machine had to be
+neutralized for the test process; no saved configuration was changed.
 
 You can also download the ZIP from [Releases](https://github.com/bjornjee/screen-to-codex/releases/latest)
 and move the extracted app into your Applications folder.
@@ -297,6 +310,18 @@ This sends a generated blue-circle image and a follow-up using the signed-in Cod
 account, consuming account usage. It creates only its own disposable test task;
 it does not capture the screen or exercise macOS permission dialogs.
 
+To check another installed runtime's image, follow-up, and disposal capabilities:
+
+```sh
+SCREEN_TO_CODEX_TEST_RUNTIME=/absolute/path/to/codex \
+  scripts/test.sh --filter compatibleRuntimeImageFollowupAndEphemeralDisposal
+```
+
+This also uses the signed-in account and a generated test image. The existing
+desktop-runtime test retains its additional model/effort metadata assertions;
+older runtimes such as 0.145 omit those fields from `thread/read`. The app does not
+depend on them.
+
 The user verified hotkey → click-and-drag → mouse-up → screenshot and chat on
 2026-09-16; runtime logs confirm capture completion and chat opening. Further live
 acceptance covers keyboard cancellation, same-overlay reply/follow-up, and closing during a turn.
@@ -317,12 +342,12 @@ Build on Apple Silicon from the tested release commit. Update the version in
 Use a new staging directory so an existing authorized local build is untouched:
 
 ```sh
-CODE_SIGN_IDENTITY=- scripts/build.sh dist/releases/v0.1.1/screen-to-codex.app
-codesign --verify --strict dist/releases/v0.1.1/screen-to-codex.app
-ditto -c -k --keepParent dist/releases/v0.1.1/screen-to-codex.app \
-  dist/releases/v0.1.1/screen-to-codex-macos-arm64.zip
-shasum -a 256 dist/releases/v0.1.1/screen-to-codex-macos-arm64.zip \
-  | cut -d ' ' -f 1 > dist/releases/v0.1.1/screen-to-codex-macos-arm64.zip.sha256
+CODE_SIGN_IDENTITY=- scripts/build.sh dist/releases/v0.1.2/screen-to-codex.app
+codesign --verify --strict dist/releases/v0.1.2/screen-to-codex.app
+ditto -c -k --keepParent dist/releases/v0.1.2/screen-to-codex.app \
+  dist/releases/v0.1.2/screen-to-codex-macos-arm64.zip
+shasum -a 256 dist/releases/v0.1.2/screen-to-codex-macos-arm64.zip \
+  | cut -d ' ' -f 1 > dist/releases/v0.1.2/screen-to-codex-macos-arm64.zip.sha256
 ```
 
 Publish the ZIP, its `.sha256` file, and the matching `install.sh` together in a
