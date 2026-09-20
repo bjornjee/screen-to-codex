@@ -74,11 +74,9 @@ let flowLog = Logger(subsystem: "local.screen-to-codex", category: "flow")
     flowLog.info("event=selection.released")
     Task {
       do {
-        guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
+        guard CGPreflightScreenCaptureAccess() else {
           flowLog.error("event=capture.denied reason=screen_permission")
-          throw AppError.message(
-            "Screen access is needed to capture this region. Enable screen-to-codex in System Settings → Privacy & Security → Screen & System Audio Recording. If macOS quits the app, reopen screen-to-codex once; then use the shortcut again. Audio and microphone recording are disabled."
-          )
+          throw ScreenAccessError.denied
         }
         // One display per selection, explicit point-to-pixel conversion, app windows excluded.
         let content = try await SCShareableContent.excludingDesktopWindows(

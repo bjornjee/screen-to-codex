@@ -9,6 +9,7 @@ let package = Package(
     .target(name: "ScreenToCodexCore"),
     .executableTarget(name: "ScreenToCodex", dependencies: ["ScreenToCodexCore"]),
     .testTarget(name: "ScreenToCodexCoreTests", dependencies: ["ScreenToCodexCore"]),
+    .testTarget(name: "ScreenToCodexTests", dependencies: ["ScreenToCodex"]),
   ],
   swiftLanguageModes: [.v5]
 )

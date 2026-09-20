@@ -16,7 +16,8 @@ public final class CaptureSession: @unchecked Sendable {
     try FileManager.default.createDirectory(
       at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
     lockFD = Darwin.open(
-      directory.appendingPathComponent("owner.lock").path, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW,
+      directory.appendingPathComponent("owner.lock").path,
+      O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW | O_CLOEXEC,
       0o600)
     guard lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
       throw AppError.message("Could not lock capture session.")
@@ -91,7 +92,8 @@ public final class CaptureSession: @unchecked Sendable {
       guard lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
         info.st_uid == getuid()
       else { continue }
-      let fd = Darwin.open(directory.appendingPathComponent("owner.lock").path, O_RDWR | O_NOFOLLOW)
+      let fd = Darwin.open(
+        directory.appendingPathComponent("owner.lock").path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
       guard fd >= 0 else { continue }
       defer { Darwin.close(fd) }
       guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { continue }

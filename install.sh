@@ -12,7 +12,7 @@ fail() {
 macos="$(sw_vers -productVersion)"
 [[ "${macos%%.*}" -ge 26 ]] || fail 'screen-to-codex requires macOS 26 or later.'
 
-version='0.1.0'
+version='0.1.1'
 asset='screen-to-codex-macos-arm64.zip'
 base="https://github.com/bjornjee/screen-to-codex/releases/download/v$version"
 install_dir="${1:-$HOME/Applications}"
