@@ -7,17 +7,48 @@ held. A click without dragging keeps selection open. Send the screenshot and a
 question to Codex, then read replies and ask follow-ups in the same rounded
 Liquid Glass overlay. Closing it queues the disposable session for cleanup.
 
-## Prerequisites
+## Install
 
-- macOS Tahoe 26 or later.
-- An active Xcode or Command Line Tools installation with Swift 6 and the macOS 26
-  SDK. The scripts use Apple's `swift`, `sips`, `iconutil`, and `codesign` tools.
+- An Apple Silicon Mac running macOS Tahoe 26 or later.
 - An installed, signed-in Codex runtime with ephemeral app-server support. Tested
   against the desktop-bundled CLI 0.154.0-alpha.6.2. The app checks these executable
   paths in order: `/Applications/Codex.app/Contents/Resources/codex`,
   `/opt/homebrew/bin/codex`, then `/usr/local/bin/codex`. A CLI elsewhere on `PATH`
   is not discovered automatically. The Codex desktop app need not be open.
 
+Download and run the installer; no Xcode, Git checkout, or compilation is needed:
+
+```sh
+curl -fLsS --proto '=https' --proto-redir '=https' \
+  https://github.com/bjornjee/screen-to-codex/releases/latest/download/install.sh \
+  -o install.sh && bash install.sh
+```
+
+The installer downloads the prebuilt app from its pinned GitHub release, checks
+its SHA-256 checksum and code signature, and installs it to `~/Applications`.
+It does not use `sudo`, launch the app, or replace an existing installation.
+To choose a different directory, run `bash install.sh "/absolute/path/Applications"`.
+If you already cloned the repository, you can run `bash install.sh` directly.
+
+Open `~/Applications/screen-to-codex.app` in Finder, then press
+**Control–Option–Space**. Allow **Screen Recording** when prompted.
+The first release is **ad-hoc signed and not notarized**. If macOS blocks it,
+follow [Apple's instructions](https://support.apple.com/en-gb/102445): attempt to
+open it, then use **System Settings → Privacy & Security → Open Anyway**.
+The installer does not remove quarantine attributes or disable Gatekeeper.
+
+For an update, quit the app and move the old bundle aside before rerunning the
+installer. Keep the old bundle if you may want to roll back. A new ad-hoc build
+may need a fresh Screen Recording grant. To uninstall, quit and move the installed
+app to the Trash.
+
+You can also download the ZIP from [Releases](https://github.com/bjornjee/screen-to-codex/releases/latest)
+and move the extracted app into your Applications folder.
+
+## Build from source
+
+Development requires an active Xcode or Command Line Tools installation with Swift 6
+and the macOS 26 SDK. The scripts use Apple's `swift`, `sips`, `iconutil`, and `codesign` tools.
 There are no third-party Swift package dependencies. From the repository root,
 check the selected development tools before building:
 
@@ -27,7 +58,7 @@ swift --version
 xcrun --sdk macosx --show-sdk-version
 ```
 
-## Build and run
+### Build and run
 
 For a first build, create the release app bundle and launch it through LaunchServices:
 
@@ -199,7 +230,10 @@ Run the local suite without sending a real Codex request:
 scripts/test.sh
 ```
 
-The suite includes pipe streaming, payload limits, and cleanup ownership tests.
+The suite includes pipe streaming, payload limits, cleanup ownership, and installer
+tests. Installer tests use local signed fixtures and stub only the network and platform
+checks; they exercise real archive extraction, checksums, signatures, and filesystem writes.
+Run just the installer tests with `bash Tests/InstallerTests/test-install.sh`.
 The real-runtime integration test is opt-in and requires the desktop-bundled CLI
 at `/Applications/Codex.app/Contents/Resources/codex` (it does not use the app's CLI
 fallback paths):
@@ -224,3 +258,24 @@ Current bounds: one selected display per capture, 4096-pixel maximum image edge,
 frames and pending requests. The overlay honors Reduce Transparency and Reduce
 Motion. The [accepted design reference](docs/design/overlay-tahoe.png) is a mockup,
 not runtime verification evidence.
+
+## Publishing a release
+
+Build on Apple Silicon from the tested release commit. Update the version in
+`Info.plist` and `install.sh` together; never replace assets for an existing version.
+Use a new staging directory so an existing authorized local build is untouched:
+
+```sh
+CODE_SIGN_IDENTITY=- scripts/build.sh dist/releases/v0.1.0/screen-to-codex.app
+codesign --verify --strict dist/releases/v0.1.0/screen-to-codex.app
+ditto -c -k --keepParent dist/releases/v0.1.0/screen-to-codex.app \
+  dist/releases/v0.1.0/screen-to-codex-macos-arm64.zip
+shasum -a 256 dist/releases/v0.1.0/screen-to-codex-macos-arm64.zip \
+  | cut -d ' ' -f 1 > dist/releases/v0.1.0/screen-to-codex-macos-arm64.zip.sha256
+```
+
+Publish the ZIP, its `.sha256` file, and the matching `install.sh` together in a
+GitHub release tagged at that exact commit. Test a fresh installation from the
+public release URLs. Developer ID signing and notarization require the appropriate
+Apple distribution credentials; Apple Development signing is not a substitute.
+See [the release decision and rollback procedure](docs/adr/002-release-installation.md).

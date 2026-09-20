@@ -8,3 +8,4 @@ swift test --disable-sandbox --disable-xctest --enable-swift-testing \
   --cache-path "${TMPDIR:-/tmp}/screen-to-codex-spm-cache" \
   -Xswiftc "-F$frameworks" -Xlinker -rpath -Xlinker "$frameworks" \
   -Xlinker -rpath -Xlinker "$(dirname "$frameworks")/usr/lib" "$@"
+bash Tests/InstallerTests/test-install.sh
